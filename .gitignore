@@ -1,0 +1,16 @@
+# Build output
+build/
+*.3dsx
+*.elf
+*.smdh
+*.map
+
+# macOS
+.DS_Store
+
+# Generated model header (rebuild with tools/obj_to_c.py)
+source/model.h
+
+# Old artefacts from the textured_cube starting point
+textured_cube.*
+gfx/kitten.*
