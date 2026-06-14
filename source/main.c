@@ -27,7 +27,11 @@ static C3D_Mtx material =
 };
 
 static void* vbo_data;
-static float angleX = 0.0f, angleY = 0.0f;
+
+// Accumulated rotation matrix — updated incrementally each frame so that
+// circle pad deltas are always applied in screen space (arcball-style).
+static C3D_Mtx modelRot;
+static bool autoRotate = true;
 
 static void sceneInit(void)
 {
@@ -55,6 +59,9 @@ static void sceneInit(void)
 	// Projection matrix — note swapped dimensions due to framebuffer rotation
 	Mtx_PerspTilt(&projection, C3D_AngleFromDegrees(80.0f), C3D_AspectRatioTop, 0.01f, 1000.0f, false);
 
+	// Start with no rotation
+	Mtx_Identity(&modelRot);
+
 	// Create the VBO
 	vbo_data = linearAlloc(sizeof(model_vertices));
 	memcpy(vbo_data, model_vertices, sizeof(model_vertices));
@@ -73,12 +80,11 @@ static void sceneInit(void)
 
 static void sceneRender(void)
 {
-	// Build modelView: translate back then apply rotations
+	// Build modelView: apply accumulated screen-space rotation, then translate
 	C3D_Mtx modelView;
 	Mtx_Identity(&modelView);
 	Mtx_Translate(&modelView, 0.0f, 0.0f, -2.0f, true);
-	Mtx_RotateX(&modelView, angleX, true);
-	Mtx_RotateY(&modelView, angleY, true);
+	Mtx_Multiply(&modelView, &modelView, &modelRot);
 
 	// Update uniforms
 	C3D_FVUnifMtx4x4(GPU_VERTEX_SHADER, uLoc_projection, &projection);
@@ -116,14 +122,38 @@ int main()
 		hidScanInput();
 
 		u32 kDown = hidKeysDown();
-		if (kDown & KEY_START)
-			break;
+		if (kDown & KEY_START) break;
+		if (kDown & KEY_L) autoRotate = !autoRotate;
 
-		// Circle pad input — rotate model
+		// Circle pad — build a screen-space delta rotation and pre-multiply
+		// onto the accumulated rotation so axes never drift or couple
 		circlePosition pos;
 		hidCircleRead(&pos);
-		angleY += pos.dx * 0.0003f;
-		angleX -= pos.dy * 0.0003f; // negate so up=tilt-up
+
+		u32 kHeld = hidKeysHeld();
+
+		// Z-axis roll: ZL = counter-clockwise, ZR = clockwise
+		float rollDelta = 0.0f;
+		if (kHeld & KEY_ZL) rollDelta =  0.02f;
+		if (kHeld & KEY_ZR) rollDelta = -0.02f;
+
+		// Deadzone — ignore small circle pad values caused by hardware drift
+		#define DEADZONE 25
+		if (pos.dx > -DEADZONE && pos.dx < DEADZONE) pos.dx = 0;
+		if (pos.dy > -DEADZONE && pos.dy < DEADZONE) pos.dy = 0;
+
+		// Auto-rotation kicks in only when the user isn't providing manual input
+		bool manualInput = (pos.dx != 0 || pos.dy != 0 || rollDelta != 0.0f);
+		float autoY = (autoRotate && !manualInput) ? 0.005f : 0.0f;
+
+		if (manualInput || autoY != 0.0f) {
+			C3D_Mtx delta;
+			Mtx_Identity(&delta);
+			Mtx_RotateY(&delta,  pos.dx * 0.0003f + autoY, true); // left/right + auto → screen Y axis
+			Mtx_RotateX(&delta, -pos.dy * 0.0003f,         true); // up/down           → screen X axis
+			Mtx_RotateZ(&delta,  rollDelta,                 true); // ZL/ZR             → screen Z axis
+			Mtx_Multiply(&modelRot, &delta, &modelRot);
+		}
 
 		C3D_FrameBegin(C3D_FRAME_SYNCDRAW);
 			C3D_RenderTargetClear(target, C3D_CLEAR_ALL, CLEAR_COLOR, 0);
