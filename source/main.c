@@ -46,7 +46,12 @@ static C3D_Mtx material =
 #define RESET_EPSILON   0.001f // snap to target when this close
 
 static void* vbo_data;
-static float angleX = 0.0f, angleY = 0.0f;
+
+// Accumulated rotation matrix — updated incrementally each frame so that
+// circle pad deltas are always applied in screen space (arcball-style).
+static C3D_Mtx modelRot;
+static bool autoRotate = true;
+
 static float camZ = CAM_Z_DEFAULT, camX = CAM_X_DEFAULT;
 static bool  resetting = false;
 
@@ -73,6 +78,12 @@ static void sceneInit(void)
 	AttrInfo_AddLoader(attrInfo, 1, GPU_FLOAT, 3); // v1=color
 	AttrInfo_AddLoader(attrInfo, 2, GPU_FLOAT, 3); // v2=normal
 
+	// Projection matrix — note swapped dimensions due to framebuffer rotation
+	Mtx_PerspTilt(&projection, C3D_AngleFromDegrees(80.0f), C3D_AspectRatioTop, 0.01f, 1000.0f, false);
+
+	// Start with no rotation
+	Mtx_Identity(&modelRot);
+
 	// Create the VBO
 	vbo_data = linearAlloc(sizeof(model_vertices));
 	memcpy(vbo_data, model_vertices, sizeof(model_vertices));
@@ -92,12 +103,11 @@ static void sceneInit(void)
 // Projection is passed in so the same draw call works for both eyes
 static void sceneRender(C3D_Mtx* proj)
 {
-	// Build modelView: rotate around model origin, then apply camera translation
+	// Build modelView: apply accumulated screen-space rotation, then camera translation
 	C3D_Mtx modelView;
 	Mtx_Identity(&modelView);
 	Mtx_Translate(&modelView, camX, 0.0f, camZ, true);
-	Mtx_RotateX(&modelView, angleX, true);
-	Mtx_RotateY(&modelView, angleY, true);
+	Mtx_Multiply(&modelView, &modelView, &modelRot);
 
 	// Update uniforms
 	C3D_FVUnifMtx4x4(GPU_VERTEX_SHADER, uLoc_projection, proj);
@@ -141,42 +151,59 @@ int main()
 		u32 kDown = hidKeysDown();
 		u32 kHeld = hidKeysHeld();
 
-		if (kDown & KEY_START)
-			break;
+		if (kDown & KEY_START) break;
+		if (kDown & KEY_L) autoRotate = !autoRotate;
 
-		// R — begin animated reset (pressing again during animation re-triggers it)
-		if (kDown & KEY_R)
+		// R — snap rotation to identity and animate camera back to defaults
+		if (kDown & KEY_R) {
 			resetting = true;
+			Mtx_Identity(&modelRot);
+		}
 
 		if (resetting) {
-			// Ease-out lerp toward defaults — circle pad suspended so drift
-			// doesn't prevent the angles from converging to zero
-			camZ   += (CAM_Z_DEFAULT - camZ)  * RESET_SPEED;
-			camX   += (CAM_X_DEFAULT - camX)  * RESET_SPEED;
-			angleX += (0.0f - angleX)         * RESET_SPEED;
-			angleY += (0.0f - angleY)         * RESET_SPEED;
+			// Ease-out lerp camera toward defaults — circle pad suspended during reset
+			camZ += (CAM_Z_DEFAULT - camZ) * RESET_SPEED;
+			camX += (CAM_X_DEFAULT - camX) * RESET_SPEED;
 
-			// Snap and finish when close enough on all axes
 			if (fabsf(camZ - CAM_Z_DEFAULT) < RESET_EPSILON &&
-			    fabsf(camX - CAM_X_DEFAULT) < RESET_EPSILON &&
-			    fabsf(angleX) < RESET_EPSILON &&
-			    fabsf(angleY) < RESET_EPSILON) {
+			    fabsf(camX - CAM_X_DEFAULT) < RESET_EPSILON) {
 				camZ = CAM_Z_DEFAULT; camX = CAM_X_DEFAULT;
-				angleX = 0.0f;        angleY = 0.0f;
 				resetting = false;
 			}
 		} else {
-			// Circle pad — rotate model
+			// Circle pad — build a screen-space delta rotation and pre-multiply
+			// onto the accumulated rotation so axes never drift or couple
 			circlePosition pos;
 			hidCircleRead(&pos);
-			angleY += pos.dx * 0.0003f;
-			angleX -= pos.dy * 0.0003f; // negate so up=tilt-up
+
+			// Z-axis roll: ZL = counter-clockwise, ZR = clockwise
+			float rollDelta = 0.0f;
+			if (kHeld & KEY_ZL) rollDelta =  0.02f;
+			if (kHeld & KEY_ZR) rollDelta = -0.02f;
+
+			// Deadzone — ignore small circle pad values caused by hardware drift
+			#define DEADZONE 25
+			if (pos.dx > -DEADZONE && pos.dx < DEADZONE) pos.dx = 0;
+			if (pos.dy > -DEADZONE && pos.dy < DEADZONE) pos.dy = 0;
+
+			// Auto-rotation kicks in only when the user isn't providing manual input
+			bool manualInput = (pos.dx != 0 || pos.dy != 0 || rollDelta != 0.0f);
+			float autoY = (autoRotate && !manualInput) ? 0.005f : 0.0f;
+
+			if (manualInput || autoY != 0.0f) {
+				C3D_Mtx delta;
+				Mtx_Identity(&delta);
+				Mtx_RotateY(&delta,  pos.dx * 0.0003f + autoY, true); // left/right + auto → screen Y axis
+				Mtx_RotateX(&delta, -pos.dy * 0.0003f,         true); // up/down           → screen X axis
+				Mtx_RotateZ(&delta,  rollDelta,                 true); // ZL/ZR             → screen Z axis
+				Mtx_Multiply(&modelRot, &delta, &modelRot);
+			}
 
 			// D-Pad — zoom (up/down) and pan (left/right)
 			if (kHeld & KEY_DUP)    camZ = camZ + ZOOM_SPEED < CAM_Z_NEAR ? camZ + ZOOM_SPEED : CAM_Z_NEAR;
 			if (kHeld & KEY_DDOWN)  camZ = camZ - ZOOM_SPEED > CAM_Z_FAR  ? camZ - ZOOM_SPEED : CAM_Z_FAR;
-			if (kHeld & KEY_DLEFT)  camX += PAN_SPEED;  // camera left = model shifts right
-			if (kHeld & KEY_DRIGHT) camX -= PAN_SPEED;  // camera right = model shifts left
+			if (kHeld & KEY_DLEFT)  camX += PAN_SPEED;
+			if (kHeld & KEY_DRIGHT) camX -= PAN_SPEED;
 		}
 
 		// Read the 3D slider and compute per-eye projections
