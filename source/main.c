@@ -78,9 +78,6 @@ static void sceneInit(void)
 	AttrInfo_AddLoader(attrInfo, 1, GPU_FLOAT, 3); // v1=color
 	AttrInfo_AddLoader(attrInfo, 2, GPU_FLOAT, 3); // v2=normal
 
-	// Projection matrix — note swapped dimensions due to framebuffer rotation
-	Mtx_PerspTilt(&projection, C3D_AngleFromDegrees(80.0f), C3D_AspectRatioTop, 0.01f, 1000.0f, false);
-
 	// Start with no rotation
 	Mtx_Identity(&modelRot);
 
