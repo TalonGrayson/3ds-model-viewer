@@ -12,11 +12,19 @@
 	GX_TRANSFER_IN_FORMAT(GX_TRANSFER_FMT_RGBA8) | GX_TRANSFER_OUT_FORMAT(GX_TRANSFER_FMT_RGB8) | \
 	GX_TRANSFER_SCALING(GX_TRANSFER_SCALE_XY))
 
+// Field of view, clip planes, and convergence depth (units matching model scale)
+#define FOV         C3D_AngleFromDegrees(80.0f)
+#define NEAR_PLANE  0.01f
+#define FAR_PLANE   1000.0f
+#define SCREEN_DEPTH 2.0f  // objects at this depth appear at the display surface
+
+// Scale the 0–1 slider value to a sensible inter-ocular distance
+#define IOD_SCALE   0.07f
+
 static DVLB_s* vshader_dvlb;
 static shaderProgram_s program;
 static int uLoc_projection, uLoc_modelView;
 static int uLoc_lightVec, uLoc_lightHalfVec, uLoc_lightClr, uLoc_material;
-static C3D_Mtx projection;
 static C3D_Mtx material =
 {
 	{
@@ -92,7 +100,8 @@ static void sceneInit(void)
 	C3D_TexEnvFunc(env, C3D_Both, GPU_REPLACE);
 }
 
-static void sceneRender(void)
+// Projection is passed in so the same draw call works for both eyes
+static void sceneRender(C3D_Mtx* proj)
 {
 	// Build modelView: apply accumulated screen-space rotation, then camera translation
 	C3D_Mtx modelView;
@@ -101,7 +110,7 @@ static void sceneRender(void)
 	Mtx_Multiply(&modelView, &modelView, &modelRot);
 
 	// Update uniforms
-	C3D_FVUnifMtx4x4(GPU_VERTEX_SHADER, uLoc_projection, &projection);
+	C3D_FVUnifMtx4x4(GPU_VERTEX_SHADER, uLoc_projection, proj);
 	C3D_FVUnifMtx4x4(GPU_VERTEX_SHADER, uLoc_modelView,  &modelView);
 	C3D_FVUnifMtx4x4(GPU_VERTEX_SHADER, uLoc_material,   &material);
 	C3D_FVUnifSet(GPU_VERTEX_SHADER, uLoc_lightVec,     0.0f, 0.0f, -1.0f, 0.0f);
@@ -121,15 +130,17 @@ static void sceneExit(void)
 
 int main()
 {
-	// Initialize graphics
+	// Initialize graphics — gfxSet3D enables the parallax barrier
 	gfxInitDefault();
+	gfxSet3D(true);
 	C3D_Init(C3D_DEFAULT_CMDBUF_SIZE);
 
-	// Initialize the render target (240x400 — framebuffer is rotated)
-	// Render at 2x resolution (480x800) and let the transfer hardware downscale
-	// to the 240x400 display — gives 4xSSAA for free
-	C3D_RenderTarget* target = C3D_RenderTargetCreate(480, 800, GPU_RB_RGBA8, GPU_RB_DEPTH24_STENCIL8);
-	C3D_RenderTargetSetOutput(target, GFX_TOP, GFX_LEFT, DISPLAY_TRANSFER_FLAGS);
+	// Two render targets at 2x resolution (480x800) — one per eye.
+	// The transfer hardware downscales to 240x400, giving 4xSSAA on both eyes.
+	C3D_RenderTarget* targetLeft  = C3D_RenderTargetCreate(480, 800, GPU_RB_RGBA8, GPU_RB_DEPTH24_STENCIL8);
+	C3D_RenderTarget* targetRight = C3D_RenderTargetCreate(480, 800, GPU_RB_RGBA8, GPU_RB_DEPTH24_STENCIL8);
+	C3D_RenderTargetSetOutput(targetLeft,  GFX_TOP, GFX_LEFT,  DISPLAY_TRANSFER_FLAGS);
+	C3D_RenderTargetSetOutput(targetRight, GFX_TOP, GFX_RIGHT, DISPLAY_TRANSFER_FLAGS);
 
 	sceneInit();
 
@@ -195,10 +206,31 @@ int main()
 			if (kHeld & KEY_DRIGHT) camX -= PAN_SPEED;
 		}
 
+		// Read the 3D slider and compute per-eye projections
+		float iod = osGet3DSliderState() * IOD_SCALE;
+
+		C3D_Mtx projLeft, projRight;
+		if (iod > 0.0f) {
+			// Stereo: offset each eye's projection by ±iod around the convergence plane
+			Mtx_PerspStereoTilt(&projLeft,  FOV, C3D_AspectRatioTop, NEAR_PLANE, FAR_PLANE, -iod, SCREEN_DEPTH, false);
+			Mtx_PerspStereoTilt(&projRight, FOV, C3D_AspectRatioTop, NEAR_PLANE, FAR_PLANE, +iod, SCREEN_DEPTH, false);
+		} else {
+			// Slider at zero — mono render into left eye only
+			Mtx_PerspTilt(&projLeft, FOV, C3D_AspectRatioTop, NEAR_PLANE, FAR_PLANE, false);
+		}
+
 		C3D_FrameBegin(C3D_FRAME_SYNCDRAW);
-			C3D_RenderTargetClear(target, C3D_CLEAR_ALL, CLEAR_COLOR, 0);
-			C3D_FrameDrawOn(target);
-			sceneRender();
+			// Left eye (always rendered)
+			C3D_RenderTargetClear(targetLeft, C3D_CLEAR_ALL, CLEAR_COLOR, 0);
+			C3D_FrameDrawOn(targetLeft);
+			sceneRender(&projLeft);
+
+			// Right eye (only when slider is up)
+			if (iod > 0.0f) {
+				C3D_RenderTargetClear(targetRight, C3D_CLEAR_ALL, CLEAR_COLOR, 0);
+				C3D_FrameDrawOn(targetRight);
+				sceneRender(&projRight);
+			}
 		C3D_FrameEnd(0);
 	}
 
