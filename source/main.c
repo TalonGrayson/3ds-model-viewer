@@ -9,7 +9,7 @@
 #define DISPLAY_TRANSFER_FLAGS \
 	(GX_TRANSFER_FLIP_VERT(0) | GX_TRANSFER_OUT_TILED(0) | GX_TRANSFER_RAW_COPY(0) | \
 	GX_TRANSFER_IN_FORMAT(GX_TRANSFER_FMT_RGBA8) | GX_TRANSFER_OUT_FORMAT(GX_TRANSFER_FMT_RGB8) | \
-	GX_TRANSFER_SCALING(GX_TRANSFER_SCALE_NO))
+	GX_TRANSFER_SCALING(GX_TRANSFER_SCALE_XY))
 
 static DVLB_s* vshader_dvlb;
 static shaderProgram_s program;
@@ -106,7 +106,9 @@ int main()
 	C3D_Init(C3D_DEFAULT_CMDBUF_SIZE);
 
 	// Initialize the render target (240x400 — framebuffer is rotated)
-	C3D_RenderTarget* target = C3D_RenderTargetCreate(240, 400, GPU_RB_RGBA8, GPU_RB_DEPTH24_STENCIL8);
+	// Render at 2x resolution (480x800) and let the transfer hardware downscale
+	// to the 240x400 display — gives 4xSSAA for free
+	C3D_RenderTarget* target = C3D_RenderTargetCreate(480, 800, GPU_RB_RGBA8, GPU_RB_DEPTH24_STENCIL8);
 	C3D_RenderTargetSetOutput(target, GFX_TOP, GFX_LEFT, DISPLAY_TRANSFER_FLAGS);
 
 	sceneInit();
