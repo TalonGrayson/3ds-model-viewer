@@ -17,3 +17,6 @@ romfs/gfx/
 # Old artefacts from the textured_cube starting point
 textured_cube.*
 gfx/kitten.*
+
+# Asset archives
+*.zip

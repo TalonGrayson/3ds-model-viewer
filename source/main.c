@@ -102,7 +102,7 @@ static void sceneInit(void)
 	C3D_TexEnvFunc(env, C3D_Both, GPU_MODULATE);
 
 	// Load diffuse texture from romfs
-	FILE* f = fopen("romfs:/gfx/cat_diffuse.t3x", "rb");
+	FILE* f = fopen("romfs:/gfx/model_diffuse.t3x", "rb");
 	if (f) {
 		Tex3DS_Texture t3x = Tex3DS_TextureImportStdio(f, &texDiffuse, NULL, false);
 		fclose(f);
