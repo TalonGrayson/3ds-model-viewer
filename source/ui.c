@@ -1,5 +1,4 @@
 #include <3ds.h>
-#include <string.h>
 #include "ui.h"
 
 // Bottom screen: 320x240 landscape, BGR8 framebuffer stored column-major.
@@ -7,29 +6,54 @@
 #define UI_W 320
 #define UI_H 240
 
-// Header bar
-#define HEADER_H 16
+// Layout
+#define HEADER_H    16   // purple top bar
+#define CARD_MARGIN  4   // gap from screen edge to card
 
-// 5x7 bitmap font — one byte per row, bit 4 = leftmost pixel.
-// Glyphs for "MODL.VIEW" in order.
-#define FONT_W     5
-#define FONT_H     7
-#define FONT_SCALE 1
-#define FONT_GAP   2   // px between glyphs (at scaled size)
+// 5x7 bitmap font, one byte per row, bit 4 = leftmost pixel.
+// Indices 0-25 = A-Z, index 26 = '.'
+#define FONT_W   5
+#define FONT_H   7
+#define FONT_GAP 2   // horizontal gap between glyphs (px)
 
-static const char BRAND[] = "MODL.VIEW";
-
-static const u8 GLYPHS[][FONT_H] = {
-    { 0x11, 0x1B, 0x15, 0x11, 0x11, 0x11, 0x11 }, // M
-    { 0x0E, 0x11, 0x11, 0x11, 0x11, 0x11, 0x0E }, // O
+static const u8 FONT[27][FONT_H] = {
+    { 0x0E, 0x11, 0x11, 0x1F, 0x11, 0x11, 0x11 }, // A
+    { 0x1E, 0x11, 0x11, 0x1E, 0x11, 0x11, 0x1E }, // B
+    { 0x0E, 0x11, 0x10, 0x10, 0x10, 0x11, 0x0E }, // C
     { 0x1E, 0x11, 0x11, 0x11, 0x11, 0x11, 0x1E }, // D
-    { 0x10, 0x10, 0x10, 0x10, 0x10, 0x10, 0x1F }, // L
-    { 0x00, 0x00, 0x00, 0x00, 0x00, 0x04, 0x00 }, // .
-    { 0x11, 0x11, 0x11, 0x11, 0x11, 0x0A, 0x04 }, // V
-    { 0x1F, 0x04, 0x04, 0x04, 0x04, 0x04, 0x1F }, // I
     { 0x1F, 0x10, 0x10, 0x1E, 0x10, 0x10, 0x1F }, // E
-    { 0x11, 0x11, 0x11, 0x15, 0x15, 0x1B, 0x0A }, // W
+    { 0x1F, 0x10, 0x10, 0x1E, 0x10, 0x10, 0x10 }, // F
+    { 0x0E, 0x11, 0x10, 0x13, 0x11, 0x11, 0x0E }, // G
+    { 0x11, 0x11, 0x11, 0x1F, 0x11, 0x11, 0x11 }, // H
+    { 0x1F, 0x04, 0x04, 0x04, 0x04, 0x04, 0x1F }, // I
+    { 0x0F, 0x02, 0x02, 0x02, 0x02, 0x12, 0x0C }, // J
+    { 0x11, 0x12, 0x14, 0x18, 0x14, 0x12, 0x11 }, // K
+    { 0x10, 0x10, 0x10, 0x10, 0x10, 0x10, 0x1F }, // L
+    { 0x11, 0x1B, 0x15, 0x11, 0x11, 0x11, 0x11 }, // M
+    { 0x11, 0x19, 0x15, 0x13, 0x11, 0x11, 0x11 }, // N
+    { 0x0E, 0x11, 0x11, 0x11, 0x11, 0x11, 0x0E }, // O
+    { 0x1E, 0x11, 0x11, 0x1E, 0x10, 0x10, 0x10 }, // P
+    { 0x0E, 0x11, 0x11, 0x11, 0x15, 0x13, 0x0F }, // Q
+    { 0x1E, 0x11, 0x11, 0x1E, 0x14, 0x12, 0x11 }, // R
+    { 0x0E, 0x11, 0x10, 0x0E, 0x01, 0x11, 0x0E }, // S
+    { 0x1F, 0x04, 0x04, 0x04, 0x04, 0x04, 0x04 }, // T
+    { 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x0E }, // U
+    { 0x11, 0x11, 0x11, 0x11, 0x11, 0x0A, 0x04 }, // V
+    { 0x11, 0x11, 0x11, 0x15, 0x15, 0x1B, 0x11 }, // W
+    { 0x11, 0x11, 0x0A, 0x04, 0x0A, 0x11, 0x11 }, // X
+    { 0x11, 0x11, 0x0A, 0x04, 0x04, 0x04, 0x04 }, // Y
+    { 0x1F, 0x01, 0x02, 0x04, 0x08, 0x10, 0x1F }, // Z
+    { 0x00, 0x00, 0x00, 0x00, 0x00, 0x04, 0x00 }, // .
 };
+
+static inline int glyphOf(char ch)
+{
+    if (ch >= 'A' && ch <= 'Z') return ch - 'A';
+    if (ch == '.') return 26;
+    return -1;
+}
+
+// ── primitives ──────────────────────────────────────────────────────────────
 
 static inline void setPixel(u8* fb, int x, int y, u8 r, u8 g, u8 b)
 {
@@ -49,22 +73,35 @@ static void fillRect(u8* fb, int sx, int sy, int w, int h, u8 r, u8 g, u8 b)
 static void drawGlyph(u8* fb, int sx, int sy, int gi, u8 r, u8 g, u8 b)
 {
     for (int row = 0; row < FONT_H; row++) {
-        u8 bits = GLYPHS[gi][row];
-        for (int col = 0; col < FONT_W; col++) {
-            if (!((bits >> (FONT_W - 1 - col)) & 1)) continue;
-            for (int dy = 0; dy < FONT_SCALE; dy++)
-                for (int dx = 0; dx < FONT_SCALE; dx++)
-                    setPixel(fb,
-                        sx + col * FONT_SCALE + dx,
-                        sy + row * FONT_SCALE + dy,
-                        r, g, b);
-        }
+        u8 bits = FONT[gi][row];
+        for (int col = 0; col < FONT_W; col++)
+            if ((bits >> (FONT_W - 1 - col)) & 1)
+                setPixel(fb, sx + col, sy + row, r, g, b);
     }
 }
 
-void uiInit(void)  {}
-void uiDraw(void)  {}
-void uiExit(void)  {}
+static void drawStr(u8* fb, int sx, int sy, const char* str, u8 r, u8 g, u8 b)
+{
+    for (int i = 0; str[i]; i++) {
+        int gi = glyphOf(str[i]);
+        if (gi >= 0) drawGlyph(fb, sx + i * (FONT_W + FONT_GAP), sy, gi, r, g, b);
+    }
+}
+
+static int strPixelW(const char* str)
+{
+    int n = 0;
+    for (; str[n]; n++) {}
+    return n > 0 ? n * FONT_W + (n - 1) * FONT_GAP : 0;
+}
+
+// ── lifecycle ────────────────────────────────────────────────────────────────
+
+void uiInit(void) {}
+void uiDraw(void) {}
+void uiExit(void) {}
+
+// ── frame ────────────────────────────────────────────────────────────────────
 
 void uiPresent(void)
 {
@@ -80,17 +117,30 @@ void uiPresent(void)
         fb[i + 2] = 0x1A;
     }
 
-    // Purple header bar: #7B5CF0
+    // ── Header bar ──────────────────────────────────────────────────────────
+    // Purple: #7B5CF0
     fillRect(fb, 0, 0, UI_W, HEADER_H, 0x7B, 0x5C, 0xF0);
 
-    // "MODL.VIEW" centered in header, white text
-    int nchars  = sizeof(BRAND) - 1;
-    int textW   = nchars * FONT_W * FONT_SCALE + (nchars - 1) * FONT_GAP;
-    int textX   = (UI_W - textW) / 2;
-    int textY   = (HEADER_H - FONT_H * FONT_SCALE) / 2;
-    for (int i = 0; i < nchars; i++)
-        drawGlyph(fb, textX + i * (FONT_W * FONT_SCALE + FONT_GAP), textY, i,
-                  0xFF, 0xFF, 0xFF);
+    // "MODL.VIEW" centered in header, white
+    const char* brand = "MODL.VIEW";
+    int brandX = (UI_W - strPixelW(brand)) / 2;
+    int brandY = (HEADER_H - FONT_H) / 2;
+    drawStr(fb, brandX, brandY, brand, 0xFF, 0xFF, 0xFF);
+
+    // ── Camera panel card ───────────────────────────────────────────────────
+    int cardX = CARD_MARGIN;
+    int cardY = HEADER_H + CARD_MARGIN;
+    int cardW = UI_W - CARD_MARGIN * 2;
+    int cardH = UI_H - HEADER_H - CARD_MARGIN * 2;
+
+    // Card background: #222226
+    fillRect(fb, cardX, cardY, cardW, cardH, 0x22, 0x22, 0x26);
+
+    // "CAMERA" label — left-aligned, 4px from card edge, muted blue-grey #9898B8
+    drawStr(fb, cardX + 4, cardY + 4, "CAMERA", 0x98, 0x98, 0xB8);
+
+    // Divider below label: #363640
+    fillRect(fb, cardX, cardY + 4 + FONT_H + 3, cardW, 1, 0x36, 0x36, 0x40);
 
     gfxScreenSwapBuffers(GFX_BOTTOM, false);
 }
