@@ -6,15 +6,30 @@
 #define UI_W 320
 #define UI_H 240
 
-// Layout
-#define HEADER_H    16   // purple top bar
-#define CARD_MARGIN  4   // gap from screen edge to card
+// ── Layout constants (all derived, don't change independently) ───────────────
+#define HEADER_H    16
+#define CARD_MARGIN  4
 
+#define CARD_X      CARD_MARGIN
+#define CARD_Y      (HEADER_H + CARD_MARGIN)
+#define CARD_W      (UI_W - CARD_MARGIN * 2)
+#define CARD_H      (UI_H - HEADER_H - CARD_MARGIN * 2)
+
+// "CAMERA" label sits 4px from card top; divider is 3px below the label
+#define DIVIDER_Y   (CARD_Y + 4 + FONT_H + 3)
+
+// Tab bar sits 1px below the divider
+#define TAB_Y       (DIVIDER_Y + 1)
+#define TAB_H       18
+#define TAB_COUNT   3
+#define TAB_W       (CARD_W / TAB_COUNT)   // 104px each
+
+// ── Font ─────────────────────────────────────────────────────────────────────
 // 5x7 bitmap font, one byte per row, bit 4 = leftmost pixel.
 // Indices 0-25 = A-Z, index 26 = '.'
 #define FONT_W   5
 #define FONT_H   7
-#define FONT_GAP 2   // horizontal gap between glyphs (px)
+#define FONT_GAP 2
 
 static const u8 FONT[27][FONT_H] = {
     { 0x0E, 0x11, 0x11, 0x1F, 0x11, 0x11, 0x11 }, // A
@@ -53,7 +68,7 @@ static inline int glyphOf(char ch)
     return -1;
 }
 
-// ── primitives ──────────────────────────────────────────────────────────────
+// ── Primitives ────────────────────────────────────────────────────────────────
 
 static inline void setPixel(u8* fb, int x, int y, u8 r, u8 g, u8 b)
 {
@@ -95,13 +110,37 @@ static int strPixelW(const char* str)
     return n > 0 ? n * FONT_W + (n - 1) * FONT_GAP : 0;
 }
 
-// ── lifecycle ────────────────────────────────────────────────────────────────
+// ── State ─────────────────────────────────────────────────────────────────────
+
+static int s_activeTab = 0;   // 0=ORBIT 1=PAN 2=ZOOM
+
+static const char* TAB_LABELS[TAB_COUNT] = { "ORBIT", "PAN", "ZOOM" };
+
+// ── Lifecycle ─────────────────────────────────────────────────────────────────
 
 void uiInit(void) {}
-void uiDraw(void) {}
 void uiExit(void) {}
 
-// ── frame ────────────────────────────────────────────────────────────────────
+// Called inside C3D_FrameBegin/End — hidScanInput has already run this frame.
+void uiDraw(void)
+{
+    // Only react on the first frame of a touch (not hold)
+    if (!(hidKeysDown() & KEY_TOUCH)) return;
+
+    touchPosition touch;
+    hidTouchRead(&touch);
+
+    // Ignore taps outside the tab bar row
+    if (touch.py < TAB_Y || touch.py >= TAB_Y + TAB_H) return;
+
+    // Map x position to tab index
+    int tx = (int)touch.px - CARD_X;
+    if (tx < 0 || tx >= CARD_W) return;
+    s_activeTab = tx / TAB_W;
+    if (s_activeTab >= TAB_COUNT) s_activeTab = TAB_COUNT - 1;
+}
+
+// ── Frame ─────────────────────────────────────────────────────────────────────
 
 void uiPresent(void)
 {
@@ -117,30 +156,47 @@ void uiPresent(void)
         fb[i + 2] = 0x1A;
     }
 
-    // ── Header bar ──────────────────────────────────────────────────────────
-    // Purple: #7B5CF0
+    // ── Header bar: #7B5CF0 ─────────────────────────────────────────────────
     fillRect(fb, 0, 0, UI_W, HEADER_H, 0x7B, 0x5C, 0xF0);
-
-    // "MODL.VIEW" centered in header, white
     const char* brand = "MODL.VIEW";
-    int brandX = (UI_W - strPixelW(brand)) / 2;
-    int brandY = (HEADER_H - FONT_H) / 2;
-    drawStr(fb, brandX, brandY, brand, 0xFF, 0xFF, 0xFF);
+    drawStr(fb, (UI_W - strPixelW(brand)) / 2, (HEADER_H - FONT_H) / 2,
+            brand, 0xFF, 0xFF, 0xFF);
 
-    // ── Camera panel card ───────────────────────────────────────────────────
-    int cardX = CARD_MARGIN;
-    int cardY = HEADER_H + CARD_MARGIN;
-    int cardW = UI_W - CARD_MARGIN * 2;
-    int cardH = UI_H - HEADER_H - CARD_MARGIN * 2;
+    // ── Card: #222226 ───────────────────────────────────────────────────────
+    fillRect(fb, CARD_X, CARD_Y, CARD_W, CARD_H, 0x22, 0x22, 0x26);
 
-    // Card background: #222226
-    fillRect(fb, cardX, cardY, cardW, cardH, 0x22, 0x22, 0x26);
-
-    // "CAMERA" label — left-aligned, 4px from card edge, muted blue-grey #9898B8
-    drawStr(fb, cardX + 4, cardY + 4, "CAMERA", 0x98, 0x98, 0xB8);
+    // "CAMERA" label — muted blue-grey #9898B8
+    drawStr(fb, CARD_X + 4, CARD_Y + 4, "CAMERA", 0x98, 0x98, 0xB8);
 
     // Divider below label: #363640
-    fillRect(fb, cardX, cardY + 4 + FONT_H + 3, cardW, 1, 0x36, 0x36, 0x40);
+    fillRect(fb, CARD_X, DIVIDER_Y, CARD_W, 1, 0x36, 0x36, 0x40);
+
+    // ── Tab bar ─────────────────────────────────────────────────────────────
+    for (int t = 0; t < TAB_COUNT; t++) {
+        int tx = CARD_X + t * TAB_W;
+        // Last tab gets any leftover pixels from integer division
+        int tw = (t == TAB_COUNT - 1) ? (CARD_X + CARD_W) - tx : TAB_W;
+
+        if (t == s_activeTab) {
+            // Active: purple fill, white label
+            fillRect(fb, tx, TAB_Y, tw, TAB_H, 0x7B, 0x5C, 0xF0);
+            int lw = strPixelW(TAB_LABELS[t]);
+            drawStr(fb, tx + (tw - lw) / 2, TAB_Y + (TAB_H - FONT_H) / 2,
+                    TAB_LABELS[t], 0xFF, 0xFF, 0xFF);
+        } else {
+            // Inactive: card bg (already filled), muted label
+            int lw = strPixelW(TAB_LABELS[t]);
+            drawStr(fb, tx + (tw - lw) / 2, TAB_Y + (TAB_H - FONT_H) / 2,
+                    TAB_LABELS[t], 0x98, 0x98, 0xB8);
+        }
+
+        // Separator between tabs
+        if (t < TAB_COUNT - 1)
+            fillRect(fb, tx + tw, TAB_Y, 1, TAB_H, 0x36, 0x36, 0x40);
+    }
+
+    // Bottom edge of tab bar
+    fillRect(fb, CARD_X, TAB_Y + TAB_H, CARD_W, 1, 0x36, 0x36, 0x40);
 
     gfxScreenSwapBuffers(GFX_BOTTOM, false);
 }
