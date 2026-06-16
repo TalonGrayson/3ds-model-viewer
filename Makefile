@@ -38,7 +38,7 @@ DATA		:=	data
 INCLUDES	:=	include
 GRAPHICS	:=	gfx
 GFXBUILD	:=	$(BUILD)
-ROMFS		:=	romfs
+#ROMFS		:=	romfs
 #GFXBUILD	:=	$(ROMFS)/gfx
 
 #---------------------------------------------------------------------------------
@@ -158,29 +158,11 @@ ifneq ($(ROMFS),)
 	export _3DSXFLAGS += --romfs=$(CURDIR)/$(ROMFS)
 endif
 
-# Variables for texture targets (rules defined after 'all' to preserve default goal)
-ROMFS_GFX        := $(CURDIR)/romfs/gfx
-MODEL_DIR        := $(CURDIR)/samus
-MODEL_TEXTURES   := \
-    $(ROMFS_GFX)/samusvaria_d.t3x \
-    $(ROMFS_GFX)/samusweapon_d.t3x
-
 .PHONY: all clean
 
 #---------------------------------------------------------------------------------
-all: $(BUILD) $(GFXBUILD) $(DEPSDIR) $(ROMFS_T3XFILES) $(T3XHFILES) $(MODEL_TEXTURES)
+all: $(BUILD) $(GFXBUILD) $(DEPSDIR) $(ROMFS_T3XFILES) $(T3XHFILES)
 	@$(MAKE) --no-print-directory -C $(BUILD) -f $(CURDIR)/Makefile
-
-$(ROMFS_GFX):
-	@mkdir -p $@
-
-$(ROMFS_GFX)/samusvaria_d.t3x: $(MODEL_DIR)/samusvaria_d.png | $(ROMFS_GFX)
-	@echo "  TEX3DS  samusvaria_d.t3x"
-	@tex3ds -f rgba8 -o $@ $<
-
-$(ROMFS_GFX)/samusweapon_d.t3x: $(MODEL_DIR)/samusweapon_d.png | $(ROMFS_GFX)
-	@echo "  TEX3DS  samusweapon_d.t3x"
-	@tex3ds -f rgba8 -o $@ $<
 
 $(BUILD):
 	@mkdir -p $@
@@ -198,7 +180,7 @@ endif
 #---------------------------------------------------------------------------------
 clean:
 	@echo clean ...
-	@rm -fr $(BUILD) $(TARGET).3dsx $(OUTPUT).smdh $(TARGET).elf $(GFXBUILD) $(ROMFS_GFX)
+	@rm -fr $(BUILD) $(TARGET).3dsx $(OUTPUT).smdh $(TARGET).elf $(GFXBUILD)
 
 #---------------------------------------------------------------------------------
 $(GFXBUILD)/%.t3x	$(BUILD)/%.h	:	%.t3s

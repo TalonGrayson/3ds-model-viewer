@@ -33,13 +33,13 @@ for obj in bpy.context.scene.objects:
     mod.ratio = ratio
     bpy.ops.object.modifier_apply(modifier=mod.name)
 
-# Export — triangulate on the way out, include normals and UVs
+# Export — triangulate on the way out, include normals
 bpy.ops.wm.obj_export(
     filepath=output_obj,
     export_triangulated_mesh=True,
     export_normals=True,
-    export_uv=True,
-    export_materials=True,
+    export_uv=False,
+    export_materials=False,
 )
 
 tri_count = sum(

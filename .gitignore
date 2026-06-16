@@ -11,12 +11,6 @@ build/
 # Generated model header (rebuild with tools/obj_to_c.py)
 source/model.h
 
-# Generated textures (rebuild with make — requires tex3ds and Pillow)
-romfs/gfx/
-
 # Old artefacts from the textured_cube starting point
 textured_cube.*
 gfx/kitten.*
-
-# Asset archives
-*.zip
