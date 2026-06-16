@@ -48,8 +48,7 @@ static C3D_Mtx material =
 #define RESET_EPSILON   0.001f // snap to target when this close
 
 static void* vbo_data;
-static C3D_Tex texDiffuse;
-static C3D_Tex texNormal __attribute__((unused)); // reserved for normal map phase
+static C3D_Tex modelTextures[MODEL_GROUP_COUNT];
 
 // Accumulated rotation matrix — updated incrementally each frame so that
 // circle pad deltas are always applied in screen space (arcball-style).
@@ -101,14 +100,17 @@ static void sceneInit(void)
 	C3D_TexEnvSrc(env, C3D_Both, GPU_TEXTURE0, GPU_PRIMARY_COLOR, 0);
 	C3D_TexEnvFunc(env, C3D_Both, GPU_MODULATE);
 
-	// Load diffuse texture from romfs
-	FILE* f = fopen("romfs:/gfx/model_diffuse.t3x", "rb");
-	if (f) {
-		Tex3DS_Texture t3x = Tex3DS_TextureImportStdio(f, &texDiffuse, NULL, false);
-		fclose(f);
-		if (t3x) Tex3DS_TextureFree(t3x);
-		C3D_TexSetFilter(&texDiffuse, GPU_LINEAR, GPU_LINEAR);
-		C3D_TexSetWrap(&texDiffuse, GPU_REPEAT, GPU_REPEAT);
+	// Load one texture per material group
+	for (int g = 0; g < MODEL_GROUP_COUNT; g++) {
+		if (!model_groups[g].texture) continue;
+		FILE* f = fopen(model_groups[g].texture, "rb");
+		if (f) {
+			Tex3DS_Texture t3x = Tex3DS_TextureImportStdio(f, &modelTextures[g], NULL, false);
+			fclose(f);
+			if (t3x) Tex3DS_TextureFree(t3x);
+			C3D_TexSetFilter(&modelTextures[g], GPU_LINEAR, GPU_LINEAR);
+			C3D_TexSetWrap(&modelTextures[g], GPU_REPEAT, GPU_REPEAT);
+		}
 	}
 }
 
@@ -129,14 +131,17 @@ static void sceneRender(C3D_Mtx* proj)
 	C3D_FVUnifSet(GPU_VERTEX_SHADER, uLoc_lightHalfVec, 0.0f, 0.0f, -1.0f, 0.0f);
 	C3D_FVUnifSet(GPU_VERTEX_SHADER, uLoc_lightClr,     1.0f, 1.0f,  1.0f, 1.0f);
 
-	// Bind diffuse texture to unit 0 and draw
-	C3D_TexBind(0, &texDiffuse);
-	C3D_DrawArrays(GPU_TRIANGLES, 0, model_vertex_count);
+	// One draw call per material group, switching texture between them
+	for (int g = 0; g < MODEL_GROUP_COUNT; g++) {
+		C3D_TexBind(0, &modelTextures[g]);
+		C3D_DrawArrays(GPU_TRIANGLES, model_groups[g].offset, model_groups[g].count);
+	}
 }
 
 static void sceneExit(void)
 {
-	C3D_TexDelete(&texDiffuse);
+	for (int g = 0; g < MODEL_GROUP_COUNT; g++)
+		C3D_TexDelete(&modelTextures[g]);
 	linearFree(vbo_data);
 	shaderProgramFree(&program);
 	DVLB_Free(vshader_dvlb);

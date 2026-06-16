@@ -160,27 +160,27 @@ endif
 
 # Variables for texture targets (rules defined after 'all' to preserve default goal)
 ROMFS_GFX        := $(CURDIR)/romfs/gfx
-TEXTURE_DIFFUSE  := $(ROMFS_GFX)/model_diffuse.t3x
-TEXTURE_NORMAL   := $(ROMFS_GFX)/model_normal.t3x
 MODEL_DIR        := $(CURDIR)/samus
+MODEL_TEXTURES   := \
+    $(ROMFS_GFX)/samusvaria_d.t3x \
+    $(ROMFS_GFX)/samusweapon_d.t3x
 
 .PHONY: all clean
 
 #---------------------------------------------------------------------------------
-all: $(BUILD) $(GFXBUILD) $(DEPSDIR) $(ROMFS_T3XFILES) $(T3XHFILES) $(TEXTURE_DIFFUSE) $(TEXTURE_NORMAL)
+all: $(BUILD) $(GFXBUILD) $(DEPSDIR) $(ROMFS_T3XFILES) $(T3XHFILES) $(MODEL_TEXTURES)
 	@$(MAKE) --no-print-directory -C $(BUILD) -f $(CURDIR)/Makefile
 
 $(ROMFS_GFX):
 	@mkdir -p $@
 
-$(TEXTURE_DIFFUSE): $(MODEL_DIR)/samusvariamorphnew_d.png | $(ROMFS_GFX)
-	@echo "  TEX3DS  model_diffuse.t3x"
+$(ROMFS_GFX)/samusvaria_d.t3x: $(MODEL_DIR)/samusvaria_d.png | $(ROMFS_GFX)
+	@echo "  TEX3DS  samusvaria_d.t3x"
 	@tex3ds -f rgba8 -o $@ $<
 
-$(TEXTURE_NORMAL): $(MODEL_DIR)/samusvariamorphnew_b.png | $(ROMFS_GFX)
-	@echo "  BUMP->NRM model_normal.t3x"
-	@python3 $(CURDIR)/tools/bump_to_normal.py $< /tmp/model_normal_intermediate.png
-	@tex3ds -f rgba8 -o $@ /tmp/model_normal_intermediate.png
+$(ROMFS_GFX)/samusweapon_d.t3x: $(MODEL_DIR)/samusweapon_d.png | $(ROMFS_GFX)
+	@echo "  TEX3DS  samusweapon_d.t3x"
+	@tex3ds -f rgba8 -o $@ $<
 
 $(BUILD):
 	@mkdir -p $@
