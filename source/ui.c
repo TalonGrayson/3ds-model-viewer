@@ -24,21 +24,29 @@
 #define TAB_COUNT   3
 #define TAB_W       (CARD_W / TAB_COUNT)   // 104px each
 
-// "FRAME" reset button — sits in card body below tab bar
+// Buttons — sit in card body below tab bar
 #define BTN_MARGIN   6
-#define BTN_X        (CARD_X + BTN_MARGIN)
 #define BTN_Y        (TAB_Y + TAB_H + 1 + BTN_MARGIN)
-#define BTN_W        80
 #define BTN_H        14
+
+// "FRAME" reset button
+#define BTN_FRAME_X  (CARD_X + BTN_MARGIN)
+#define BTN_FRAME_W  80
+
+// Zoom buttons — right-aligned pair
+#define BTN_ZOOM_W   20
+#define BTN_ZOOM_GAP  4
+#define BTN_ZOOM_OUT_X (CARD_X + CARD_W - BTN_MARGIN - BTN_ZOOM_W * 2 - BTN_ZOOM_GAP)
+#define BTN_ZOOM_IN_X  (CARD_X + CARD_W - BTN_MARGIN - BTN_ZOOM_W)
 
 // ── Font ─────────────────────────────────────────────────────────────────────
 // 5x7 bitmap font, one byte per row, bit 4 = leftmost pixel.
-// Indices 0-25 = A-Z, index 26 = '.'
+// Indices 0-25 = A-Z, 26 = '.', 27 = '-', 28 = '+'
 #define FONT_W   5
 #define FONT_H   7
 #define FONT_GAP 2
 
-static const u8 FONT[27][FONT_H] = {
+static const u8 FONT[29][FONT_H] = {
     { 0x0E, 0x11, 0x11, 0x1F, 0x11, 0x11, 0x11 }, // A
     { 0x1E, 0x11, 0x11, 0x1E, 0x11, 0x11, 0x1E }, // B
     { 0x0E, 0x11, 0x10, 0x10, 0x10, 0x11, 0x0E }, // C
@@ -65,13 +73,17 @@ static const u8 FONT[27][FONT_H] = {
     { 0x11, 0x11, 0x0A, 0x04, 0x0A, 0x11, 0x11 }, // X
     { 0x11, 0x11, 0x0A, 0x04, 0x04, 0x04, 0x04 }, // Y
     { 0x1F, 0x01, 0x02, 0x04, 0x08, 0x10, 0x1F }, // Z
-    { 0x00, 0x00, 0x00, 0x00, 0x00, 0x04, 0x00 }, // .
+    { 0x00, 0x00, 0x00, 0x00, 0x00, 0x04, 0x00 }, // .  [26]
+    { 0x00, 0x00, 0x00, 0x1F, 0x00, 0x00, 0x00 }, // -  [27]
+    { 0x00, 0x04, 0x04, 0x1F, 0x04, 0x04, 0x00 }, // +  [28]
 };
 
 static inline int glyphOf(char ch)
 {
     if (ch >= 'A' && ch <= 'Z') return ch - 'A';
     if (ch == '.') return 26;
+    if (ch == '-') return 27;
+    if (ch == '+') return 28;
     return -1;
 }
 
@@ -123,6 +135,8 @@ static int s_activeTab = 0;   // 0=ORBIT 1=PAN 2=ZOOM
 
 static const char* TAB_LABELS[TAB_COUNT] = { "ORBIT", "PAN", "ZOOM" };
 
+static UIEvent uiPollHeld(void); // forward decl — defined after uiDraw
+
 // ── Lifecycle ─────────────────────────────────────────────────────────────────
 
 void uiInit(void) {}
@@ -131,9 +145,9 @@ void uiExit(void) {}
 // Called inside C3D_FrameBegin/End — hidScanInput has already run this frame.
 UIEvent uiDraw(void)
 {
-    UIEvent events = UI_EVENT_NONE;
+    UIEvent events = uiPollHeld(); // zoom buttons respond to hold
 
-    // Only react on the first frame of a touch (not hold)
+    // Tap-only interactions use KEY_TOUCH from hidKeysDown
     if (!(hidKeysDown() & KEY_TOUCH)) return events;
 
     touchPosition touch;
@@ -150,12 +164,32 @@ UIEvent uiDraw(void)
         }
     }
 
-    // "FRAME" reset button
-    if (px >= BTN_X && px < BTN_X + BTN_W &&
+    // "FRAME" reset button — tap only
+    if (px >= BTN_FRAME_X && px < BTN_FRAME_X + BTN_FRAME_W &&
         py >= BTN_Y && py < BTN_Y + BTN_H) {
         events |= UI_EVENT_RESET_VIEW;
     }
 
+    return events;
+}
+
+// Zoom buttons are checked on held touch (separate from tap-only logic above)
+static UIEvent uiPollHeld(void)
+{
+    UIEvent events = UI_EVENT_NONE;
+    if (!(hidKeysHeld() & KEY_TOUCH)) return events;
+
+    touchPosition touch;
+    hidTouchRead(&touch);
+    int px = (int)touch.px;
+    int py = (int)touch.py;
+
+    if (py >= BTN_Y && py < BTN_Y + BTN_H) {
+        if (px >= BTN_ZOOM_OUT_X && px < BTN_ZOOM_OUT_X + BTN_ZOOM_W)
+            events |= UI_EVENT_ZOOM_OUT;
+        if (px >= BTN_ZOOM_IN_X  && px < BTN_ZOOM_IN_X  + BTN_ZOOM_W)
+            events |= UI_EVENT_ZOOM_IN;
+    }
     return events;
 }
 
@@ -217,19 +251,22 @@ void uiPresent(void)
     // Bottom edge of tab bar
     fillRect(fb, CARD_X, TAB_Y + TAB_H, CARD_W, 1, 0x36, 0x36, 0x40);
 
-    // ── "FRAME" reset button ─────────────────────────────────────────────────
-    // Outlined button: dark fill, purple border, white label
-    fillRect(fb, BTN_X, BTN_Y, BTN_W, BTN_H, 0x28, 0x28, 0x2E);
-    // Border (1px)
-    fillRect(fb, BTN_X,             BTN_Y,              BTN_W, 1,     0x7B, 0x5C, 0xF0);
-    fillRect(fb, BTN_X,             BTN_Y + BTN_H - 1,  BTN_W, 1,     0x7B, 0x5C, 0xF0);
-    fillRect(fb, BTN_X,             BTN_Y,              1,     BTN_H, 0x7B, 0x5C, 0xF0);
-    fillRect(fb, BTN_X + BTN_W - 1, BTN_Y,              1,     BTN_H, 0x7B, 0x5C, 0xF0);
-    // Label centered
-    const char* btnLabel = "FRAME";
-    int blw = strPixelW(btnLabel);
-    drawStr(fb, BTN_X + (BTN_W - blw) / 2, BTN_Y + (BTN_H - FONT_H) / 2,
-            btnLabel, 0xFF, 0xFF, 0xFF);
+    // ── Buttons row ──────────────────────────────────────────────────────────
+    // Helper: draw an outlined button with a centered label
+    #define DRAW_BTN(bx, bw, label) do { \
+        fillRect(fb, (bx), BTN_Y, (bw), BTN_H, 0x28, 0x28, 0x2E); \
+        fillRect(fb, (bx), BTN_Y, (bw), 1, 0x7B, 0x5C, 0xF0); \
+        fillRect(fb, (bx), BTN_Y + BTN_H - 1, (bw), 1, 0x7B, 0x5C, 0xF0); \
+        fillRect(fb, (bx), BTN_Y, 1, BTN_H, 0x7B, 0x5C, 0xF0); \
+        fillRect(fb, (bx) + (bw) - 1, BTN_Y, 1, BTN_H, 0x7B, 0x5C, 0xF0); \
+        int _lw = strPixelW(label); \
+        drawStr(fb, (bx) + ((bw) - _lw) / 2, BTN_Y + (BTN_H - FONT_H) / 2, \
+                (label), 0xFF, 0xFF, 0xFF); \
+    } while(0)
+
+    DRAW_BTN(BTN_FRAME_X,    BTN_FRAME_W, "FRAME");
+    DRAW_BTN(BTN_ZOOM_OUT_X, BTN_ZOOM_W,  "-");
+    DRAW_BTN(BTN_ZOOM_IN_X,  BTN_ZOOM_W,  "+");
 
     gfxScreenSwapBuffers(GFX_BOTTOM, false);
 }

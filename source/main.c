@@ -262,6 +262,10 @@ int main()
 				resetting = true;
 				Mtx_Identity(&modelRot);
 			}
+			if (uiEvents & UI_EVENT_ZOOM_IN)
+				camZ = camZ + ZOOM_SPEED < CAM_Z_NEAR ? camZ + ZOOM_SPEED : CAM_Z_NEAR;
+			if (uiEvents & UI_EVENT_ZOOM_OUT)
+				camZ = camZ - ZOOM_SPEED > CAM_Z_FAR  ? camZ - ZOOM_SPEED : CAM_Z_FAR;
 		C3D_FrameEnd(0);
 		uiPresent(); // CPU direct write to gfx framebuffer — no GPU sync needed
 	}

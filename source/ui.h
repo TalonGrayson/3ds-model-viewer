@@ -4,6 +4,8 @@
 typedef enum {
     UI_EVENT_NONE        = 0,
     UI_EVENT_RESET_VIEW  = 1 << 0,  // "FRAME" button tapped
+    UI_EVENT_ZOOM_IN     = 1 << 1,  // "+" button held
+    UI_EVENT_ZOOM_OUT    = 1 << 2,  // "-" button held
 } UIEvent;
 
 void     uiInit(void);
