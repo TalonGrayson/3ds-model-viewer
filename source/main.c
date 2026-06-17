@@ -178,7 +178,7 @@ int main()
 		if (kDown & KEY_START) break;
 		if (kDown & KEY_L) autoRotate = !autoRotate;
 
-		// R — snap rotation to identity and animate camera back to defaults
+		// R button or FRAME touch button — snap rotation and animate camera to defaults
 		if (kDown & KEY_R) {
 			resetting = true;
 			Mtx_Identity(&modelRot);
@@ -257,7 +257,11 @@ int main()
 			}
 
 			// Bottom screen UI
-			uiDraw();
+			UIEvent uiEvents = uiDraw();
+			if (uiEvents & UI_EVENT_RESET_VIEW) {
+				resetting = true;
+				Mtx_Identity(&modelRot);
+			}
 		C3D_FrameEnd(0);
 		uiPresent(); // CPU direct write to gfx framebuffer — no GPU sync needed
 	}

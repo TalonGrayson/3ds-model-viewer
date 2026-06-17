@@ -24,6 +24,13 @@
 #define TAB_COUNT   3
 #define TAB_W       (CARD_W / TAB_COUNT)   // 104px each
 
+// "FRAME" reset button — sits in card body below tab bar
+#define BTN_MARGIN   6
+#define BTN_X        (CARD_X + BTN_MARGIN)
+#define BTN_Y        (TAB_Y + TAB_H + 1 + BTN_MARGIN)
+#define BTN_W        80
+#define BTN_H        14
+
 // ── Font ─────────────────────────────────────────────────────────────────────
 // 5x7 bitmap font, one byte per row, bit 4 = leftmost pixel.
 // Indices 0-25 = A-Z, index 26 = '.'
@@ -122,22 +129,34 @@ void uiInit(void) {}
 void uiExit(void) {}
 
 // Called inside C3D_FrameBegin/End — hidScanInput has already run this frame.
-void uiDraw(void)
+UIEvent uiDraw(void)
 {
+    UIEvent events = UI_EVENT_NONE;
+
     // Only react on the first frame of a touch (not hold)
-    if (!(hidKeysDown() & KEY_TOUCH)) return;
+    if (!(hidKeysDown() & KEY_TOUCH)) return events;
 
     touchPosition touch;
     hidTouchRead(&touch);
+    int px = (int)touch.px;
+    int py = (int)touch.py;
 
-    // Ignore taps outside the tab bar row
-    if (touch.py < TAB_Y || touch.py >= TAB_Y + TAB_H) return;
+    // Tab bar
+    if (py >= TAB_Y && py < TAB_Y + TAB_H) {
+        int tx = px - CARD_X;
+        if (tx >= 0 && tx < CARD_W) {
+            s_activeTab = tx / TAB_W;
+            if (s_activeTab >= TAB_COUNT) s_activeTab = TAB_COUNT - 1;
+        }
+    }
 
-    // Map x position to tab index
-    int tx = (int)touch.px - CARD_X;
-    if (tx < 0 || tx >= CARD_W) return;
-    s_activeTab = tx / TAB_W;
-    if (s_activeTab >= TAB_COUNT) s_activeTab = TAB_COUNT - 1;
+    // "FRAME" reset button
+    if (px >= BTN_X && px < BTN_X + BTN_W &&
+        py >= BTN_Y && py < BTN_Y + BTN_H) {
+        events |= UI_EVENT_RESET_VIEW;
+    }
+
+    return events;
 }
 
 // ── Frame ─────────────────────────────────────────────────────────────────────
@@ -197,6 +216,20 @@ void uiPresent(void)
 
     // Bottom edge of tab bar
     fillRect(fb, CARD_X, TAB_Y + TAB_H, CARD_W, 1, 0x36, 0x36, 0x40);
+
+    // ── "FRAME" reset button ─────────────────────────────────────────────────
+    // Outlined button: dark fill, purple border, white label
+    fillRect(fb, BTN_X, BTN_Y, BTN_W, BTN_H, 0x28, 0x28, 0x2E);
+    // Border (1px)
+    fillRect(fb, BTN_X,             BTN_Y,              BTN_W, 1,     0x7B, 0x5C, 0xF0);
+    fillRect(fb, BTN_X,             BTN_Y + BTN_H - 1,  BTN_W, 1,     0x7B, 0x5C, 0xF0);
+    fillRect(fb, BTN_X,             BTN_Y,              1,     BTN_H, 0x7B, 0x5C, 0xF0);
+    fillRect(fb, BTN_X + BTN_W - 1, BTN_Y,              1,     BTN_H, 0x7B, 0x5C, 0xF0);
+    // Label centered
+    const char* btnLabel = "FRAME";
+    int blw = strPixelW(btnLabel);
+    drawStr(fb, BTN_X + (BTN_W - blw) / 2, BTN_Y + (BTN_H - FONT_H) / 2,
+            btnLabel, 0xFF, 0xFF, 0xFF);
 
     gfxScreenSwapBuffers(GFX_BOTTOM, false);
 }
