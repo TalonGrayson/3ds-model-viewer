@@ -257,15 +257,22 @@ int main()
 			}
 
 			// Bottom screen UI
-			UIEvent uiEvents = uiDraw();
-			if (uiEvents & UI_EVENT_RESET_VIEW) {
+			UIResult ui = uiDraw();
+			if (ui.events & UI_EVENT_RESET_VIEW) {
 				resetting = true;
 				Mtx_Identity(&modelRot);
 			}
-			if (uiEvents & UI_EVENT_ZOOM_IN)
+			if (ui.events & UI_EVENT_ZOOM_IN)
 				camZ = camZ + ZOOM_SPEED < CAM_Z_NEAR ? camZ + ZOOM_SPEED : CAM_Z_NEAR;
-			if (uiEvents & UI_EVENT_ZOOM_OUT)
+			if (ui.events & UI_EVENT_ZOOM_OUT)
 				camZ = camZ - ZOOM_SPEED > CAM_Z_FAR  ? camZ - ZOOM_SPEED : CAM_Z_FAR;
+			if ((ui.orbitDX != 0.0f || ui.orbitDY != 0.0f) && !resetting) {
+				C3D_Mtx orbitDelta;
+				Mtx_Identity(&orbitDelta);
+				Mtx_RotateY(&orbitDelta, ui.orbitDX, true);
+				Mtx_RotateX(&orbitDelta, ui.orbitDY, true);
+				Mtx_Multiply(&modelRot, &orbitDelta, &modelRot);
+			}
 		C3D_FrameEnd(0);
 		uiPresent(); // CPU direct write to gfx framebuffer — no GPU sync needed
 	}

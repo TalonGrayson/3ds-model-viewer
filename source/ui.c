@@ -1,4 +1,5 @@
 #include <3ds.h>
+#include <math.h>
 #include "ui.h"
 
 // Bottom screen: 320x240 landscape, BGR8 framebuffer stored column-major.
@@ -38,6 +39,14 @@
 #define BTN_ZOOM_GAP  4
 #define BTN_ZOOM_OUT_X (CARD_X + CARD_W - BTN_MARGIN - BTN_ZOOM_W * 2 - BTN_ZOOM_GAP)
 #define BTN_ZOOM_IN_X  (CARD_X + CARD_W - BTN_MARGIN - BTN_ZOOM_W)
+
+// Orbit pad — circle centered in remaining card body below the button row
+#define ORBIT_BODY_TOP  (BTN_Y + BTN_H + BTN_MARGIN)
+#define ORBIT_BODY_BOT  (CARD_Y + CARD_H - CARD_MARGIN)
+#define ORBIT_CX        (CARD_X + CARD_W / 2)
+#define ORBIT_CY        ((ORBIT_BODY_TOP + ORBIT_BODY_BOT) / 2)
+#define ORBIT_R         60
+#define ORBIT_SCALE     0.008f   // radians per pixel of drag
 
 // ── Font ─────────────────────────────────────────────────────────────────────
 // 5x7 bitmap font, one byte per row, bit 4 = leftmost pixel.
@@ -129,13 +138,46 @@ static int strPixelW(const char* str)
     return n > 0 ? n * FONT_W + (n - 1) * FONT_GAP : 0;
 }
 
+// SDF circle — samples every pixel in the bounding annulus, blends by true
+// distance to the ideal radius. No octant symmetry = no duplicate-write patches.
+// halfW controls stroke width: 0.5 = 1px, 1.0 = 2px, etc.
+static void drawCircleAA(u8* fb, int cx, int cy, int r, float halfW, u8 cr, u8 cg, u8 cb)
+{
+    int margin = (int)(halfW + 1.5f);
+    int r1sq = (r - margin) * (r - margin);
+    int r2sq = (r + margin) * (r + margin);
+    if (r1sq < 0) r1sq = 0;
+
+    for (int dy = -(r + margin); dy <= r + margin; dy++) {
+        int py = cy + dy;
+        if (py < 0 || py >= UI_H) continue;
+        for (int dx = -(r + margin); dx <= r + margin; dx++) {
+            int px = cx + dx;
+            if (px < 0 || px >= UI_W) continue;
+            int dsq = dx*dx + dy*dy;
+            if (dsq < r1sq || dsq > r2sq) continue;
+            float dist  = fabsf(sqrtf((float)dsq) - (float)r);
+            float alpha = halfW + 0.5f - dist;
+            if (alpha <= 0.0f) continue;
+            if (alpha > 1.0f)  alpha = 1.0f;
+            setPixel(fb, px, py,
+                (u8)(cr * alpha + 0x22 * (1.0f - alpha)),
+                (u8)(cg * alpha + 0x22 * (1.0f - alpha)),
+                (u8)(cb * alpha + 0x26 * (1.0f - alpha)));
+        }
+    }
+}
+
 // ── State ─────────────────────────────────────────────────────────────────────
 
-static int s_activeTab = 0;   // 0=ORBIT 1=PAN 2=ZOOM
+static int  s_activeTab  = 0;     // 0=ORBIT 1=PAN 2=ZOOM
+static bool s_orbiting   = false;
+static int  s_orbitPX    = 0;
+static int  s_orbitPY    = 0;
 
 static const char* TAB_LABELS[TAB_COUNT] = { "ORBIT", "PAN", "ZOOM" };
 
-static UIEvent uiPollHeld(void); // forward decl — defined after uiDraw
+static UIResult uiPollHeld(void); // forward decl — defined after uiDraw
 
 // ── Lifecycle ─────────────────────────────────────────────────────────────────
 
@@ -143,17 +185,40 @@ void uiInit(void) {}
 void uiExit(void) {}
 
 // Called inside C3D_FrameBegin/End — hidScanInput has already run this frame.
-UIEvent uiDraw(void)
+UIResult uiDraw(void)
 {
-    UIEvent events = uiPollHeld(); // zoom buttons respond to hold
+    UIResult result = { uiPollHeld().events, 0.0f, 0.0f };
 
-    // Tap-only interactions use KEY_TOUCH from hidKeysDown
-    if (!(hidKeysDown() & KEY_TOUCH)) return events;
+    // ── Orbit pad (held touch inside circle) ────────────────────────────────
+    if (hidKeysHeld() & KEY_TOUCH) {
+        touchPosition touch;
+        hidTouchRead(&touch);
+        int px = (int)touch.px, py = (int)touch.py;
+        int ddx = px - ORBIT_CX, ddy = py - ORBIT_CY;
+
+        if (!s_orbiting) {
+            // Start orbiting only when touch begins inside the circle
+            if (ddx*ddx + ddy*ddy <= ORBIT_R*ORBIT_R) {
+                s_orbiting = true;
+                s_orbitPX  = px;
+                s_orbitPY  = py;
+            }
+        } else {
+            result.orbitDX =  (float)(px - s_orbitPX) * ORBIT_SCALE;
+            result.orbitDY =  (float)(py - s_orbitPY) * ORBIT_SCALE;
+            s_orbitPX = px;
+            s_orbitPY = py;
+        }
+    } else {
+        s_orbiting = false;
+    }
+
+    // ── Tap-only interactions ────────────────────────────────────────────────
+    if (!(hidKeysDown() & KEY_TOUCH)) return result;
 
     touchPosition touch;
     hidTouchRead(&touch);
-    int px = (int)touch.px;
-    int py = (int)touch.py;
+    int px = (int)touch.px, py = (int)touch.py;
 
     // Tab bar
     if (py >= TAB_Y && py < TAB_Y + TAB_H) {
@@ -164,33 +229,32 @@ UIEvent uiDraw(void)
         }
     }
 
-    // "FRAME" reset button — tap only
+    // "FRAME" reset button
     if (px >= BTN_FRAME_X && px < BTN_FRAME_X + BTN_FRAME_W &&
         py >= BTN_Y && py < BTN_Y + BTN_H) {
-        events |= UI_EVENT_RESET_VIEW;
+        result.events |= UI_EVENT_RESET_VIEW;
     }
 
-    return events;
+    return result;
 }
 
-// Zoom buttons are checked on held touch (separate from tap-only logic above)
-static UIEvent uiPollHeld(void)
+// Zoom and orbit-start use hidKeysHeld; this handles zoom button polling.
+static UIResult uiPollHeld(void)
 {
-    UIEvent events = UI_EVENT_NONE;
-    if (!(hidKeysHeld() & KEY_TOUCH)) return events;
+    UIResult result = { UI_EVENT_NONE, 0.0f, 0.0f };
+    if (!(hidKeysHeld() & KEY_TOUCH)) return result;
 
     touchPosition touch;
     hidTouchRead(&touch);
-    int px = (int)touch.px;
-    int py = (int)touch.py;
+    int px = (int)touch.px, py = (int)touch.py;
 
     if (py >= BTN_Y && py < BTN_Y + BTN_H) {
         if (px >= BTN_ZOOM_OUT_X && px < BTN_ZOOM_OUT_X + BTN_ZOOM_W)
-            events |= UI_EVENT_ZOOM_OUT;
+            result.events |= UI_EVENT_ZOOM_OUT;
         if (px >= BTN_ZOOM_IN_X  && px < BTN_ZOOM_IN_X  + BTN_ZOOM_W)
-            events |= UI_EVENT_ZOOM_IN;
+            result.events |= UI_EVENT_ZOOM_IN;
     }
-    return events;
+    return result;
 }
 
 // ── Frame ─────────────────────────────────────────────────────────────────────
@@ -267,6 +331,19 @@ void uiPresent(void)
     DRAW_BTN(BTN_FRAME_X,    BTN_FRAME_W, "FRAME");
     DRAW_BTN(BTN_ZOOM_OUT_X, BTN_ZOOM_W,  "-");
     DRAW_BTN(BTN_ZOOM_IN_X,  BTN_ZOOM_W,  "+");
+
+    // ── Orbit pad ────────────────────────────────────────────────────────────
+    // Circle border: purple when active, muted otherwise
+    u8 orbitR = s_orbiting ? 0x7B : 0x48;
+    u8 orbitG = s_orbiting ? 0x5C : 0x48;
+    u8 orbitB = s_orbiting ? 0xF0 : 0x60;
+    drawCircleAA(fb, ORBIT_CX, ORBIT_CY, ORBIT_R, 1.0f, orbitR, orbitG, orbitB);
+
+    // Crosshair at center
+    fillRect(fb, ORBIT_CX - 5, ORBIT_CY, 4, 1, orbitR, orbitG, orbitB);
+    fillRect(fb, ORBIT_CX + 2, ORBIT_CY, 4, 1, orbitR, orbitG, orbitB);
+    fillRect(fb, ORBIT_CX, ORBIT_CY - 5, 1, 4, orbitR, orbitG, orbitB);
+    fillRect(fb, ORBIT_CX, ORBIT_CY + 2, 1, 4, orbitR, orbitG, orbitB);
 
     gfxScreenSwapBuffers(GFX_BOTTOM, false);
 }

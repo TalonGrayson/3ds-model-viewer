@@ -1,6 +1,6 @@
 #pragma once
 
-// Bitmask returned by uiDraw — main.c checks these each frame.
+// Bitmask of discrete events returned by uiDraw each frame.
 typedef enum {
     UI_EVENT_NONE        = 0,
     UI_EVENT_RESET_VIEW  = 1 << 0,  // "FRAME" button tapped
@@ -8,7 +8,14 @@ typedef enum {
     UI_EVENT_ZOOM_OUT    = 1 << 2,  // "-" button held
 } UIEvent;
 
-void     uiInit(void);
-UIEvent  uiDraw(void);    // call inside C3D_FrameBegin / C3D_FrameEnd
-void     uiPresent(void); // call after C3D_FrameEnd — blits to the gfx framebuffer
-void     uiExit(void);
+// Full result from uiDraw — events plus continuous orbit deltas.
+typedef struct {
+    UIEvent events;
+    float   orbitDX;   // radians to apply around Y axis (yaw)
+    float   orbitDY;   // radians to apply around X axis (pitch)
+} UIResult;
+
+void      uiInit(void);
+UIResult  uiDraw(void);    // call inside C3D_FrameBegin / C3D_FrameEnd
+void      uiPresent(void); // call after C3D_FrameEnd — blits to the gfx framebuffer
+void      uiExit(void);
