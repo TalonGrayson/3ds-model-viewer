@@ -13,6 +13,40 @@ Description of the component, why it's structured this way, and any invariants t
 ---
 -->
 
+## [2026-06-20] Dev environment and build/deploy workflow (slug: dev-environment)
+**Status:** CURRENT
+**Tags:** toolchain, workflow, deployment
+
+- **Machine:** MacBook (macOS), IDE: Cursor
+- **Toolchain:** devkitPro — devkitARM, libctru, citro3d, picasso, tex3ds. Installed via `dkp-pacman -S 3ds-dev`. Location: `/opt/devkitpro`
+- **Required env vars** (in `~/.zshrc`):
+  ```bash
+  export DEVKITPRO=/opt/devkitpro
+  export DEVKITARM="${DEVKITPRO}/devkitARM"
+  export PATH="${DEVKITPRO}/tools/bin:${PATH}"
+  ```
+- **Build:** `make` → produces `model-viewer.3dsx` (also `.elf`, `.smdh`)
+- **Deploy:** `3dslink -a 192.168.88.28 ./model-viewer.3dsx` — pushes over WiFi. The 3DS must have Homebrew Launcher open with network receiver active (press Y in hbmenu). Auto-discovery is unreliable — always pass `-a <IP>` explicitly.
+- **Target hardware:** New 3DS LL (Japanese unit, region-switched to English, CFW installed)
+- **Reference examples repo:** `~/code/3ds/3ds-examples` — useful starting points: `graphics/gpu/textured_cube` (project base), `graphics/gpu/toon_shading`, `graphics/gpu/fragment_light`, `graphics/gpu/stereoscopic_2d`
+
+---
+
+## [2026-06-20] Blender decimation pipeline (slug: blender-decimation)
+**Status:** CURRENT
+**Tags:** build, assets, tools
+
+High-poly OBJ files need decimation before the OBJ-to-C step. Target: ~3,000–5,000 triangles for comfortable 3DS budget.
+
+```bash
+/Applications/Blender.app/Contents/MacOS/Blender --background \
+  --python tools/decimate_obj.py -- input.obj output.obj 0.05
+```
+
+`0.05` = keep 5% of original faces. Decimated output feeds into `obj_to_c.py`. Current test model: `samus/00000000.obj` (Samus Varia Suit, 2,583 triangles, 2 texture groups — already decimated and confirmed working on hardware).
+
+---
+
 ## [2026-06-20] SDF circle stroke (slug: sdf-circle-stroke)
 **Status:** CURRENT
 **Tags:** rendering, ui, bottom-screen

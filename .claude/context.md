@@ -4,7 +4,7 @@
 **Repo:** git@github.com:TalonGrayson/3ds-model-viewer.git
 
 ## Current Focus
-PR #8 (feature/touchscreen-ui → main) open for review. Bottom screen UI complete: dark shell, MODL.VIEW header, CAMERA panel, ORBIT/PAN/ZOOM tabs, FRAME + zoom buttons, touch orbit pad with AA circle.
+PR #8 (feature/touchscreen-ui → main) open for review. Phase 2 complete. Phase 3 (normal mapping) and Phase 4 (SD card loader) queued — see [[plan]].
 
 ## Open Tasks (0)
 <!-- - [ ] Task title → [[tasks#task-slug]] -->
@@ -20,7 +20,7 @@ PR #8 (feature/touchscreen-ui → main) open for review. Bottom screen UI comple
 <!-- (none) -->
 
 ## Open Questions
-<!-- - Question → [[questions#question-slug]] -->
+- Why does C3D_RenderTargetSetOutput black out the bottom screen? → [[questions#render-target-bottom-screen-black]]
 
 ## Security Flags
 <!-- (none) -->
